@@ -15,6 +15,7 @@ import {
 } from '../services/fairShare.js';
 import { summarizeIncidentReport } from '../services/aiService.js';
 import { createNotification, notifyBookingStatusChange } from '../services/notificationService.js';
+import { photoFileFilter, uploadLimiter } from '../middleware/security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,7 +32,11 @@ const storage = multer.diskStorage({
     cb(null, uniqueName);
   }
 });
-const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: photoFileFilter
+});
 
 export const bookingsRouter = express.Router();
 
@@ -340,7 +345,7 @@ bookingsRouter.post('/:id/decide', authenticate, requireRole('owner', 'manager',
 /**
  * Check-in condition report + photos
  */
-bookingsRouter.post('/:id/checkin', authenticate, upload.array('photos', 5), (req, res) => {
+bookingsRouter.post('/:id/checkin', authenticate, uploadLimiter, upload.array('photos', 5), (req, res) => {
   try {
     const bookingId = req.params.id;
     const { is_working = 1, has_scratches = 0, missing_parts = 0, cleanliness = 5, notes } = req.body;
@@ -404,7 +409,7 @@ bookingsRouter.post('/:id/checkin', authenticate, upload.array('photos', 5), (re
 /**
  * Return condition report + before/after diff + AI suggestion
  */
-bookingsRouter.post('/:id/return', authenticate, upload.array('photos', 5), async (req, res) => {
+bookingsRouter.post('/:id/return', authenticate, uploadLimiter, upload.array('photos', 5), async (req, res) => {
   try {
     const bookingId = req.params.id;
     const { is_working = 1, has_scratches = 0, missing_parts = 0, cleanliness = 5, notes } = req.body;

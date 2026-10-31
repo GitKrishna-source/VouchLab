@@ -3,10 +3,11 @@ import bcrypt from 'bcryptjs';
 import { db } from '../db/database.js';
 import { generateToken, authenticate } from '../middleware/auth.js';
 import { logAudit } from '../services/auditChain.js';
+import { authLimiter } from '../middleware/security.js';
 
 export const authRouter = express.Router();
 
-authRouter.post('/register', async (req, res) => {
+authRouter.post('/register', authLimiter, async (req, res) => {
   try {
     const { name, email, password, role = 'user', category = 'student', department, phone } = req.body;
     if (!name || !email || !password) {
@@ -45,7 +46,7 @@ authRouter.post('/register', async (req, res) => {
   }
 });
 
-authRouter.post('/login', async (req, res) => {
+authRouter.post('/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {

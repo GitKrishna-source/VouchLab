@@ -95,6 +95,18 @@ VouchLab/
 ```
 
 - **Database**: Zero-setup `better-sqlite3` with normalized tables portable to PostgreSQL.
-- **Audit Ledger**: Hash-chaining each row using canonical JSON serialization and `SHA-256(prev_hash + entry)`.
-- **AI Integration**: Gemini / Groq API (`GEMINI_API_KEY`) with deterministic local heuristics fallback when running offline.
-- **Security**: Bcrypt password hashing, JWT stateless tokens, role enforcement on all mutations, strictly sanitized file uploads.
+- **Audit Ledger**: Hash-chaining each row using canonical SHA-256 serialization `SHA-256(prev_hash + entry)`.
+- **Automated Overdue Watcher**: Background worker periodically flags overdue returns and dispatches real-time user/owner alerts.
+- **Security & Privacy**: Helmet security headers, rate limiting (auth, quizzes, uploads), strict MIME validation, and PII sanitization for owner views.
+- **Containerization**: Multi-stage `Dockerfile` and `docker-compose.yml` for instant production deployment.
+
+---
+
+## 🐳 Docker Deployment
+
+To launch the full production stack in an isolated container:
+
+```bash
+docker compose up --build
+```
+The application will be live at `http://localhost:5000` with persistent storage volumes for uploaded documents and database records.

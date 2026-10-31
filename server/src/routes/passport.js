@@ -7,6 +7,7 @@ import { db } from '../db/database.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { logAudit } from '../services/auditChain.js';
 import { createNotification } from '../services/notificationService.js';
+import { quizLimiter, uploadLimiter, certificateFileFilter, sanitizePassportForViewer } from '../middleware/security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,7 +27,8 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: certificateFileFilter
 });
 
 export const passportRouter = express.Router();
@@ -80,6 +82,48 @@ passportRouter.get('/my-passport', authenticate, (req, res) => {
 });
 
 /**
+ * GET user's passport (for owners / managers reviewing bookings or qualifications)
+ * Privacy-preserving: Strips phone numbers, private personal data, and irrelevant records
+ */
+passportRouter.get('/user/:userId', authenticate, requireRole('owner', 'manager', 'admin'), (req, res) => {
+  try {
+    const targetUserId = req.params.userId;
+    const user = db.prepare('SELECT id, name, category, department, verified_status FROM users WHERE id = ?').get(targetUserId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const badges = db.prepare('SELECT * FROM passports WHERE user_id = ? ORDER BY issued_at DESC').all(targetUserId);
+    const certificates = db.prepare(`
+      SELECT c.id, c.requirement_id, c.file_url, c.status, c.verified_at, r.title as requirement_title, res.name as resource_name
+      FROM certificates c
+      JOIN resource_requirements r ON c.requirement_id = r.id
+      JOIN resources res ON r.resource_id = res.id
+      WHERE c.user_id = ?
+      ORDER BY c.created_at DESC
+    `).all(targetUserId);
+
+    const signoffs = db.prepare(`
+      SELECT s.id, s.requirement_id, s.resource_id, s.status, s.approved_at, r.title as requirement_title, res.name as resource_name
+      FROM signoffs s
+      JOIN resource_requirements r ON s.requirement_id = r.id
+      JOIN resources res ON s.resource_id = res.id
+      WHERE s.user_id = ?
+      ORDER BY s.requested_at DESC
+    `).all(targetUserId);
+
+    res.json(sanitizePassportForViewer({
+      user,
+      badges,
+      certificates,
+      signoffs
+    }, req.user.role));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET quiz details by requirement_id
  */
 passportRouter.get('/quiz-by-requirement/:requirementId', authenticate, (req, res) => {
@@ -108,7 +152,7 @@ passportRouter.get('/quiz-by-requirement/:requirementId', authenticate, (req, re
 /**
  * Submit quiz answers and score
  */
-passportRouter.post('/quizzes/:quizId/submit', authenticate, (req, res) => {
+passportRouter.post('/quizzes/:quizId/submit', authenticate, quizLimiter, (req, res) => {
   try {
     const quizId = req.params.quizId;
     const { answers } = req.body; // e.g. { "questionId": selectedIndex }
@@ -201,7 +245,7 @@ passportRouter.post('/quizzes/:quizId/submit', authenticate, (req, res) => {
 /**
  * Upload certificate for a requirement
  */
-passportRouter.post('/certificates/upload', authenticate, upload.single('certificate'), (req, res) => {
+passportRouter.post('/certificates/upload', authenticate, uploadLimiter, upload.single('certificate'), (req, res) => {
   try {
     const { requirement_id, notes } = req.body;
     if (!req.file || !requirement_id) {
