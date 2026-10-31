@@ -15,6 +15,7 @@
   "type": "commonjs",
   "main": "server/src/index.js",
   "scripts": {
+    "build": "npm install --prefix server && npm install --prefix client && npm run build --prefix client",
     "start": "node server/src/index.js",
     "server": "node server/src/index.js",
     "client": "npm run dev --prefix client",
