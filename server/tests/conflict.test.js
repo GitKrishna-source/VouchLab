@@ -12,6 +12,23 @@ test('Conflict Detection - Accurately Detects Overlapping Slots', () => {
   const slotStart = `${tomorrowStr}T14:00:00`;
   const slotEnd = `${tomorrowStr}T16:00:00`;
 
+  // Ensure test bookings exist
+  const existingCount = db.prepare(`
+    SELECT COUNT(*) as c FROM bookings WHERE resource_id = ? AND start_time = ?
+  `).get(printer.id, slotStart).c;
+
+  if (existingCount < 2) {
+    const student = db.prepare('SELECT id FROM users LIMIT 1').get();
+    db.prepare(`
+      INSERT INTO bookings (resource_id, user_id, start_time, end_time, status, project_category)
+      VALUES (?, ?, ?, ?, 'pending', 'academic_project')
+    `).run(printer.id, student.id, slotStart, slotEnd);
+    db.prepare(`
+      INSERT INTO bookings (resource_id, user_id, start_time, end_time, status, project_category)
+      VALUES (?, ?, ?, ?, 'pending', 'research')
+    `).run(printer.id, student.id, slotStart, slotEnd);
+  }
+
   // Pre-seeded conflicting requests exist for tomorrow 14:00-16:00
   const conflicts = findConflictingBookings(printer.id, slotStart, slotEnd);
   assert.equal(conflicts.length >= 2, true, 'Must find at least 2 competing/overlapping requests for tomorrow');

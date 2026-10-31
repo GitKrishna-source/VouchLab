@@ -46,18 +46,19 @@ test('AI Anomaly Engine - Flags Prime-Hour Slot Churning for Human Review', asyn
   assert.equal(flagRow.status, 'pending_review');
 
   // Simulate Human-in-the-Loop review (action = warning)
+  const adminUser = db.prepare("SELECT id, name, role FROM users WHERE role IN ('admin', 'owner', 'manager') LIMIT 1").get() || user;
   const reviewedAt = new Date().toISOString();
   db.prepare(`
     UPDATE ai_usage_flags
-    SET status = 'warning_issued', reviewed_by = 1, reviewed_at = ?, review_notes = 'Reviewed by lab manager.'
+    SET status = 'warning_issued', reviewed_by = ?, reviewed_at = ?, review_notes = 'Reviewed by lab manager.'
     WHERE id = ?
-  `).run(reviewedAt, flagRow.id);
+  `).run(adminUser.id, reviewedAt, flagRow.id);
 
   // Log to audit chain
   logAudit({
-    actor_id: 1,
-    actor_name: 'Dr. Vikram Rao',
-    actor_role: 'owner',
+    actor_id: adminUser.id,
+    actor_name: adminUser.name || 'Dr. Vikram Rao',
+    actor_role: adminUser.role || 'owner',
     action: 'AI_FLAG_WARNING',
     entity_type: 'ai_usage_flag',
     entity_id: flagRow.id,
