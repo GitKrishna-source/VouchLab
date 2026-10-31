@@ -2,6 +2,17 @@
   "name": "vouchlab",
   "version": "1.0.0",
   "description": "TrustShare / VouchLab - Trust-and-Accountability Campus Resource Sharing",
+  "homepage": "https://github.com/GitKrishna-source/VouchLab#readme",
+  "bugs": {
+    "url": "https://github.com/GitKrishna-source/VouchLab/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GitKrishna-source/VouchLab.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
   "main": "server/src/index.js",
   "scripts": {
     "start": "node server/src/index.js",

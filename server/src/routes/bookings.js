@@ -431,7 +431,7 @@ bookingsRouter.post('/:id/return', authenticate, uploadLimiter, upload.array('ph
       photoUrls.push(...existing);
     }
     if (photoUrls.length === 0) {
-      photoUrls.push('https://images.unsplash.com/photo-1581092335397-9583fe92d232?auto=format&fit=crop&w=600&q=80');
+      photoUrls.push('https://images.unsplash.com/photo-1631541909061-71e349d1f203?auto=format&fit=crop&w=600&q=80');
     }
 
     const checkinReport = db.prepare(`
