@@ -13,6 +13,7 @@ export async function seedDatabase(isReset = false) {
       DELETE FROM notifications;
       DELETE FROM incidents;
       DELETE FROM condition_reports;
+      DELETE FROM ai_usage_flags;
       DELETE FROM bookings;
       DELETE FROM signoffs;
       DELETE FROM quiz_attempts;
@@ -751,6 +752,25 @@ export async function seedDatabase(isReset = false) {
     `2 students are competing for the 3D Printer tomorrow. Check the ranked recommendation queue.`,
     'info',
     '/owner/requests'
+  );
+
+  // 10. Pre-seeded AI Usage Anomaly Flag (Human-in-the-Loop review)
+  db.prepare(`
+    INSERT INTO ai_usage_flags (user_id, pattern_type, severity, summary, metrics, suggested_action, status)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending_review')
+  `).run(
+    student3Id,
+    'Prime-Time Slot Churn',
+    'high',
+    'Simran Kaur has cancelled 3 prime-hour reservations (10:00 - 16:00) out of 4 total bookings in the past 30 days (75% churn rate). Flagged for owner review.',
+    JSON.stringify({
+      total_bookings_30d: 4,
+      cancellations_30d: 3,
+      prime_cancellations: 3,
+      late_cancellations: 2,
+      churn_rate: '75%'
+    }),
+    'Send friendly reminder regarding campus cancellation etiquette or adjust monthly cap'
   );
 
   console.log('✅ Demo database seeded successfully with all 5 core scenarios.');

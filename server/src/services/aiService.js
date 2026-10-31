@@ -121,36 +121,156 @@ export async function analyzeUserSuspiciousPatterns(userId) {
     ORDER BY b.created_at DESC
   `).all(userId, thirtyDaysAgo);
 
+  const total = bookings.length;
   const cancellations = bookings.filter(b => b.status === 'cancelled');
+
+  // Prime hours cancellations (10:00 - 16:00)
   const primeCancellations = cancellations.filter(b => {
     const hour = new Date(b.start_time).getHours();
     return hour >= 10 && hour <= 16;
   });
 
-  const isHoarding = bookings.length >= 5 && cancellations.length >= 3;
-  const isPrimeSniping = primeCancellations.length >= 2;
+  // Late cancellations (cancelled within 24 hours of start time)
+  const lateCancellations = cancellations.filter(b => {
+    const start = new Date(b.start_time).getTime();
+    const created = new Date(b.created_at).getTime();
+    return (start - created) <= 24 * 60 * 60 * 1000;
+  });
 
-  if (!isHoarding && !isPrimeSniping) {
+  const isHoarding = total >= 4 && cancellations.length >= 3;
+  const isPrimeSniping = primeCancellations.length >= 2;
+  const isLateChurn = lateCancellations.length >= 2;
+
+  if (!isHoarding && !isPrimeSniping && !isLateChurn) {
     return {
       flagged: false,
       message: 'Usage patterns appear normal and within community standards.'
     };
   }
 
-  const patternDescription = isPrimeSniping 
-    ? `${primeCancellations.length} cancellations during prime lab hours (10:00 - 16:00)`
-    : `${cancellations.length} total cancellations out of ${bookings.length} reservations`;
+  let patternType = 'High-Frequency Reservation Churn';
+  let severity = 'medium';
+  if (isPrimeSniping && lateCancellations.length >= 2) {
+    patternType = 'Prime-Time Slot Churn';
+    severity = 'high';
+  } else if (isLateChurn) {
+    patternType = 'Late-Cancellation Churn';
+    severity = 'medium';
+  } else if (isHoarding) {
+    patternType = 'Slot Hoarding / High Cancellation Rate';
+    severity = 'high';
+  }
 
+  const metrics = {
+    total_bookings_30d: total,
+    cancellations_30d: cancellations.length,
+    prime_cancellations: primeCancellations.length,
+    late_cancellations: lateCancellations.length,
+    churn_rate: `${Math.round((cancellations.length / Math.max(1, total)) * 100)}%`
+  };
+
+  // Attempt Gemini AI assessment if key available
+  if (GEMINI_API_KEY) {
+    const prompt = `
+      Evaluate this campus equipment booking usage pattern for fairness & slot hoarding:
+      Student: ${user.name} (${user.email})
+      Total bookings (30 days): ${total}
+      Cancellations: ${cancellations.length} (${metrics.churn_rate})
+      Prime lab hours cancellations (10am-4pm): ${primeCancellations.length}
+      Late cancellations (<24h notice): ${lateCancellations.length}
+      Pattern Type: ${patternType}
+
+      Respond strictly in JSON:
+      {
+        "summary": "1-2 sentence plain objective summary for the lab owner",
+        "severity": "low" | "medium" | "high",
+        "recommended_human_action": "e.g. Issue friendly etiquette reminder, monitor upcoming slots, or dismiss"
+      }
+    `;
+    const aiResp = await callGemini(prompt);
+    if (aiResp) {
+      try {
+        const clean = aiResp.replace(/```json/g, '').replace(/```/g, '').trim();
+        const parsed = JSON.parse(clean);
+        return {
+          flagged: true,
+          user_id: userId,
+          user_name: user.name,
+          pattern_type: patternType,
+          severity: parsed.severity || severity,
+          summary: parsed.summary,
+          metrics,
+          recommended_human_action: parsed.recommended_human_action,
+          source: 'Gemini AI Anomaly Insight',
+          isAi: true
+        };
+      } catch (e) {
+        // Fall back to rule-based summary
+      }
+    }
+  }
+
+  // Deterministic Rule-Based Summary
   return {
     flagged: true,
     user_id: userId,
     user_name: user.name,
-    pattern_type: isPrimeSniping ? 'Prime-Time Slot Churn' : 'High Frequency Reservation Churn',
-    summary: `Student has ${patternDescription} in the last 30 days. Recommend human review to ensure fair access for peers.`,
-    recommended_human_action: 'Send friendly reminder regarding campus cancellation etiquette or adjust monthly cap',
-    source: 'Fairness Anomaly Scanner',
+    pattern_type: patternType,
+    severity,
+    summary: `Student logged ${cancellations.length} cancellations (${primeCancellations.length} during peak hours 10:00-16:00) out of ${total} reservations in the past 30 days.`,
+    metrics,
+    recommended_human_action: severity === 'high' 
+      ? 'Send direct reminder regarding prime slot reservation etiquette or review active holds' 
+      : 'Monitor upcoming bookings; discuss project schedule if cancellation pattern persists',
+    source: 'Heuristic Anomaly Detector',
     isAi: false
   };
+}
+
+/**
+ * Campus-wide scan across all active borrowers
+ */
+export async function scanAndRecordCampusAnomalies() {
+  const usersWithBookings = db.prepare(`
+    SELECT DISTINCT user_id 
+    FROM bookings 
+    WHERE created_at >= datetime('now', '-30 days')
+  `).all();
+
+  const newlyFlagged = [];
+
+  for (const { user_id } of usersWithBookings) {
+    const analysis = await analyzeUserSuspiciousPatterns(user_id);
+    if (analysis && analysis.flagged) {
+      // Check if open flag already exists
+      const existing = db.prepare(`
+        SELECT id FROM ai_usage_flags 
+        WHERE user_id = ? AND status = 'pending_review'
+      `).get(user_id);
+
+      if (!existing) {
+        const stmt = db.prepare(`
+          INSERT INTO ai_usage_flags (user_id, pattern_type, severity, summary, metrics, suggested_action, status)
+          VALUES (?, ?, ?, ?, ?, ?, 'pending_review')
+        `);
+        const result = stmt.run(
+          user_id,
+          analysis.pattern_type,
+          analysis.severity,
+          analysis.summary,
+          JSON.stringify(analysis.metrics),
+          analysis.recommended_human_action
+        );
+
+        newlyFlagged.push({
+          id: result.lastInsertRowid,
+          ...analysis
+        });
+      }
+    }
+  }
+
+  return newlyFlagged;
 }
 
 /**
