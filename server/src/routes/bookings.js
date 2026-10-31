@@ -11,7 +11,9 @@ import {
   checkUserBookingConstraints,
   findConflictingBookings,
   computeFairShareScore,
-  rankQueueForResource
+  rankQueueForResource,
+  getCancellationsLast30Days,
+  getFairnessConfig
 } from '../services/fairShare.js';
 import { summarizeIncidentReport } from '../services/aiService.js';
 import { createNotification, notifyBookingStatusChange } from '../services/notificationService.js';
@@ -554,17 +556,29 @@ bookingsRouter.post('/:id/cancel', authenticate, (req, res) => {
     const bookingId = req.params.id;
     const { reason } = req.body;
 
-    const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(bookingId);
+    const booking = db.prepare(`
+      SELECT b.*, r.name as resource_name 
+      FROM bookings b 
+      JOIN resources r ON b.resource_id = r.id 
+      WHERE b.id = ?
+    `).get(bookingId);
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
     if (booking.user_id !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'owner') {
       return res.status(403).json({ error: 'Unauthorized to cancel this booking' });
     }
 
+    if (booking.status === 'cancelled') {
+      return res.status(400).json({ error: 'Booking is already cancelled' });
+    }
+
     db.prepare("UPDATE bookings SET status = 'cancelled', decision_reason = ? WHERE id = ?").run(
       `Cancelled by ${req.user.name}: ${reason || 'User requested cancellation'}`,
       bookingId
     );
+
+    const config = getFairnessConfig();
+    const updatedCancellations = getCancellationsLast30Days(booking.user_id);
 
     logAudit({
       actor_id: req.user.id,
@@ -573,7 +587,7 @@ bookingsRouter.post('/:id/cancel', authenticate, (req, res) => {
       action: 'BOOKING_CANCELLED',
       entity_type: 'booking',
       entity_id: Number(bookingId),
-      payload: { reason }
+      payload: { reason, total_cancellations_30d: updatedCancellations }
     });
 
     // Re-rank queue for this resource
@@ -581,48 +595,95 @@ bookingsRouter.post('/:id/cancel', authenticate, (req, res) => {
 
     notifyBookingStatusChange(bookingId, 'cancelled', reason);
 
-    res.json({ message: 'Booking successfully cancelled' });
+    let warning = null;
+    if (updatedCancellations >= config.cancellation_penalty_threshold) {
+      warning = `Warning: You now have ${updatedCancellations} cancellations in the past 30 days. Your account is on cooldown and future booking requests are temporarily paused for ${config.cancellation_block_days} days.`;
+    }
+
+    res.json({
+      message: 'Booking successfully cancelled',
+      cancellations_count: updatedCancellations,
+      cooldown_threshold: config.cancellation_penalty_threshold,
+      warning
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 /**
- * Request extension
+ * Request extension with conflict detection
  */
 bookingsRouter.post('/:id/extend', authenticate, (req, res) => {
   try {
     const bookingId = req.params.id;
     const { new_end_time, reason } = req.body;
 
-    const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(bookingId);
+    const booking = db.prepare(`
+      SELECT b.*, r.name as resource_name, r.owner_id 
+      FROM bookings b
+      JOIN resources r ON b.resource_id = r.id
+      WHERE b.id = ?
+    `).get(bookingId);
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
+    if (booking.user_id !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'owner') {
+      return res.status(403).json({ error: 'Unauthorized to extend this booking' });
+    }
+
+    if (booking.status !== 'approved' && booking.status !== 'checked_in') {
+      return res.status(400).json({ error: `Cannot extend booking in '${booking.status}' status` });
+    }
+
+    // Default to +1 hour if no explicit new_end_time provided
+    const targetEndTime = new_end_time || new Date(new Date(booking.end_time).getTime() + 60 * 60 * 1000).toISOString();
+
     // Conflict check for extension window
-    const conflicts = findConflictingBookings(booking.resource_id, booking.end_time, new_end_time, booking.id);
+    const conflicts = findConflictingBookings(booking.resource_id, booking.end_time, targetEndTime, booking.id);
     if (conflicts.length > 0) {
       return res.status(400).json({
-        error: `Cannot extend: Conflict detected with another booking (${conflicts[0].user_name} has requested this slot).`
+        error: `Cannot extend: Conflict detected with another booking (${conflicts[0].user_name} has requested or reserved this overlapping window).`
       });
     }
 
     db.prepare(`
       UPDATE bookings 
-      SET extension_requested_to = ?, extension_status = 'pending'
+      SET end_time = ?, extension_requested_to = ?, extension_status = 'approved'
       WHERE id = ?
-    `).run(new_end_time, bookingId);
+    `).run(targetEndTime, targetEndTime, bookingId);
 
     logAudit({
       actor_id: req.user.id,
       actor_name: req.user.name,
       actor_role: req.user.role,
-      action: 'BOOKING_EXTENSION_REQUESTED',
+      action: 'BOOKING_EXTENDED_1HR',
       entity_type: 'booking',
       entity_id: Number(bookingId),
-      payload: { new_end_time, reason }
+      payload: { previous_end: booking.end_time, new_end: targetEndTime, reason }
     });
 
-    res.json({ message: 'Extension requested successfully and sent to owner for sign-off' });
+    createNotification({
+      userId: booking.user_id,
+      title: '1-Hour Extension Approved! ⏱️',
+      message: `Your session for "${booking.resource_name}" has been extended to ${new Date(targetEndTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
+      type: 'success',
+      link: `/bookings/${booking.id}`
+    });
+
+    if (booking.owner_id) {
+      createNotification({
+        userId: booking.owner_id,
+        title: 'Booking Extended (1 hr)',
+        message: `${req.user.name} extended their active booking for "${booking.resource_name}" by 1 hour.`,
+        type: 'info',
+        link: `/bookings/${booking.id}`
+      });
+    }
+
+    res.json({
+      message: 'Extension granted! +1 hour added with verified availability.',
+      new_end_time: targetEndTime
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -674,8 +735,14 @@ bookingsRouter.get('/:id', authenticate, (req, res) => {
       scoreBreakdown = null;
     }
 
+    const cancellationsLast30Days = getCancellationsLast30Days(booking.user_id);
+    const config = getFairnessConfig();
+
     res.json({
       ...booking,
+      cancellations_last_30_days: cancellationsLast30Days,
+      cancellation_penalty_threshold: config.cancellation_penalty_threshold,
+      cancellation_block_days: config.cancellation_block_days,
       score_breakdown: scoreBreakdown,
       condition_reports: conditionReports,
       incidents,
