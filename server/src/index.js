@@ -17,6 +17,7 @@ import { incidentsRouter } from './routes/incidents.js';
 import { auditRouter } from './routes/audit.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { adminRouter } from './routes/admin.js';
+import { aiRouter } from './routes/ai.js';
 
 dotenv.config();
 
@@ -66,6 +67,7 @@ app.use('/api/incidents', incidentsRouter);
 app.use('/api/audit', auditRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/ai', aiRouter);
 
 // SPA fallback for frontend client routing
 app.get('*', (req, res, next) => {

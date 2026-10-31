@@ -3,9 +3,10 @@ import { api } from '../services/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { ExplainScoreModal } from '../components/ExplainScoreModal.jsx';
+import { AiUsageInsightCard } from '../components/AiUsageInsightCard.jsx';
 import {
   Inbox, Check, X, Clock, HelpCircle, AlertCircle, Sparkles,
-  Scale, ShieldAlert, FileText, ChevronRight
+  Scale, ShieldAlert, FileText, ChevronRight, RefreshCw, Zap
 } from 'lucide-react';
 
 export function OwnerDashboard() {
@@ -22,9 +23,35 @@ export function OwnerDashboard() {
   const [overrideReason, setOverrideReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
+  // AI Usage Flags State
+  const [aiFlags, setAiFlags] = useState([]);
+  const [scanningAi, setScanningAi] = useState(false);
+
   useEffect(() => {
     loadIncomingRequests();
+    loadAiFlags();
   }, [user]);
+
+  async function loadAiFlags() {
+    try {
+      const flags = await api.getAiFlags();
+      setAiFlags(flags || []);
+    } catch (err) {
+      console.error('Failed to load AI flags:', err);
+    }
+  }
+
+  async function handleTriggerAiScan() {
+    try {
+      setScanningAi(true);
+      await api.triggerAiScan();
+      await loadAiFlags();
+    } catch (err) {
+      alert(err.message || 'Scan failed');
+    } finally {
+      setScanningAi(false);
+    }
+  }
 
   async function loadIncomingRequests() {
     setLoading(true);
@@ -98,6 +125,41 @@ export function OwnerDashboard() {
           <span>Algorithmic Fair-Share Queue Active</span>
         </div>
       </div>
+
+      {/* AI Usage Anomaly & Slot-Hoarding Insights Section */}
+      {aiFlags.length > 0 && (
+        <div className="space-y-3 bg-gradient-to-r from-indigo-50/50 via-purple-50/30 to-slate-50 p-5 rounded-3xl border border-indigo-100">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-indigo-600" />
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                AI Usage Insights & Slot-Hoarding Alerts ({aiFlags.filter(f => f.status === 'pending_review').length} Actionable)
+              </h3>
+            </div>
+            <button
+              onClick={handleTriggerAiScan}
+              disabled={scanningAi}
+              className="text-[11px] font-bold text-indigo-700 hover:text-indigo-800 bg-white px-3 py-1 rounded-xl border border-indigo-200/80 hover:shadow-sm transition inline-flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3 h-3 ${scanningAi ? 'animate-spin' : ''}`} />
+              {scanningAi ? 'Scanning...' : 'Re-Scan Patterns'}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3">
+            {aiFlags.map(flag => (
+              <AiUsageInsightCard
+                key={flag.id}
+                flag={flag}
+                onReviewed={() => {
+                  loadAiFlags();
+                  loadIncomingRequests();
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 overflow-x-auto">

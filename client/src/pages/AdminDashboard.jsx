@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../services/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { StatusBadge } from '../components/StatusBadge.jsx';
+import { AiUsageInsightCard } from '../components/AiUsageInsightCard.jsx';
 import {
   ShieldCheck, ShieldAlert, RotateCcw, AlertTriangle, Users,
-  Layers, CheckCircle2, Clock, Check, X, FileText, Sparkles, Scale, Terminal
+  Layers, CheckCircle2, Clock, Check, X, FileText, Sparkles, Scale, Terminal, RefreshCw
 } from 'lucide-react';
 
 export function AdminDashboard() {
@@ -23,10 +24,36 @@ export function AdminDashboard() {
   // Tamper tool state
   const [tampering, setTampering] = useState(false);
 
+  // AI Usage Flags State
+  const [aiFlags, setAiFlags] = useState([]);
+  const [scanningAi, setScanningAi] = useState(false);
+
   useEffect(() => {
     loadDashboard();
     loadAuditLogs();
+    loadAiFlags();
   }, [user]);
+
+  async function loadAiFlags() {
+    try {
+      const data = await api.getAiFlags();
+      setAiFlags(data || []);
+    } catch (e) {
+      console.error('Failed to load AI flags:', e);
+    }
+  }
+
+  async function handleTriggerScan() {
+    try {
+      setScanningAi(true);
+      await api.triggerAiScan();
+      await loadAiFlags();
+    } catch (err) {
+      alert(err.message || 'Scan failed');
+    } finally {
+      setScanningAi(false);
+    }
+  }
 
   async function loadDashboard() {
     try {
@@ -226,6 +253,50 @@ export function AdminDashboard() {
           <div className="text-2xl font-black text-slate-900 dark:text-white font-mono mt-2">{totalLogs || 10}</div>
           <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">SHA-256 chained</div>
         </div>
+      </div>
+
+      {/* AI Usage Anomaly & Slot-Hoarding Insights Section */}
+      <div className="space-y-4 bg-gradient-to-r from-indigo-50/60 via-purple-50/30 to-slate-50 p-6 rounded-3xl border border-indigo-100 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-indigo-600" />
+            <div>
+              <h3 className="text-sm font-black text-slate-900">
+                AI Pattern Scanner & Fair-Usage Governance
+              </h3>
+              <p className="text-xs text-slate-500">
+                Human-in-the-loop oversight: Detects reservation churning and slot-hoarding before applying administrative holds
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleTriggerScan}
+            disabled={scanningAi}
+            className="px-4 py-2 bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 rounded-xl text-xs font-bold shadow-sm transition inline-flex items-center gap-2 self-start sm:self-auto disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${scanningAi ? 'animate-spin' : ''}`} />
+            {scanningAi ? 'Analyzing Patterns...' : 'Run Campus AI Scan'}
+          </button>
+        </div>
+
+        {aiFlags.length === 0 ? (
+          <div className="p-6 bg-white/80 rounded-2xl border border-dashed border-slate-200 text-center text-xs text-slate-400">
+            No active usage anomalies flagged. All student booking patterns are within community etiquette guidelines.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3">
+            {aiFlags.map(flag => (
+              <AiUsageInsightCard
+                key={flag.id}
+                flag={flag}
+                onReviewed={() => {
+                  loadAiFlags();
+                  loadAuditLogs();
+                }}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Audit Log Ledger Table */}

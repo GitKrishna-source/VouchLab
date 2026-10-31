@@ -199,3 +199,18 @@ CREATE TABLE IF NOT EXISTS audit_log (
   hash TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS ai_usage_flags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  pattern_type TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'medium' CHECK(severity IN ('low', 'medium', 'high')),
+  summary TEXT NOT NULL,
+  metrics TEXT DEFAULT '{}', -- JSON data
+  suggested_action TEXT,
+  status TEXT NOT NULL DEFAULT 'pending_review' CHECK(status IN ('pending_review', 'dismissed', 'warning_issued', 'cooldown_applied')),
+  reviewed_by INTEGER REFERENCES users(id),
+  reviewed_at TEXT,
+  review_notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+

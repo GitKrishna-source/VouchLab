@@ -97,6 +97,11 @@ export const api = {
   getAdminStats: () => request('/admin/stats'),
   getFairnessConfig: () => request('/admin/fairness-config'),
   updateFairnessConfig: (config) => request('/admin/fairness-config', { method: 'PUT', body: JSON.stringify(config) }),
-  resetDemoDatabase: () => request('/admin/reset-demo', { method: 'POST' })
+  resetDemoDatabase: () => request('/admin/reset-demo', { method: 'POST' }),
+
+  // AI Usage Anomaly & Slot-Hoarding Insights
+  getAiFlags: (status) => request(`/ai/flags?status=${status || 'all'}`),
+  triggerAiScan: () => request('/ai/scan', { method: 'POST' }),
+  reviewAiFlag: (id, action, notes) => request(`/ai/flags/${id}/review`, { method: 'POST', body: JSON.stringify({ action, notes }) })
 };
 
