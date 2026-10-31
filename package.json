@@ -1,0 +1,17 @@
+{
+  "name": "vouchlab",
+  "version": "1.0.0",
+  "description": "TrustShare / VouchLab - Trust-and-Accountability Campus Resource Sharing",
+  "main": "server/src/index.js",
+  "scripts": {
+    "start": "node server/src/index.js",
+    "server": "node server/src/index.js",
+    "client": "npm run dev --prefix client",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"SERVER,CLIENT\" -c \"cyan,magenta\" \"node server/src/index.js\" \"npm run dev --prefix client\"",
+    "seed": "node server/src/db/seed.js",
+    "test": "node --test server/tests/*.test.js"
+  },
+  "dependencies": {
+    "concurrently": "^9.2.5"
+  }
+}
