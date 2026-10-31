@@ -115,7 +115,7 @@ authRouter.post('/demo-login', (req, res) => {
 
 authRouter.get('/demo-accounts', (req, res) => {
   const users = db.prepare('SELECT id, name, email, role, category, department FROM users ORDER BY role DESC, id ASC').all();
-  res.json({ demo_accounts: users, default_password: 'password123' });
+  res.json({ demo_accounts: users, default_password: 'demo1234' });
 });
 
 authRouter.get('/me', authenticate, (req, res) => {

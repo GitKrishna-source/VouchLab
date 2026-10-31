@@ -1,4 +1,6 @@
-const API_BASE = '/api';
+// Dynamic API Base URL (supports standalone frontend hosting e.g. Vercel/Netlify with remote backend)
+const rawApiUrl = import.meta.env.VITE_API_URL || '';
+const API_BASE = rawApiUrl ? `${rawApiUrl.replace(/\/$/, '')}/api` : '/api';
 
 function getHeaders(isFormData = false) {
   const headers = {};
