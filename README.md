@@ -110,3 +110,4 @@ To launch the full production stack in an isolated container:
 docker compose up --build
 ```
 The application will be live at `http://localhost:5000` with persistent storage volumes for uploaded documents and database records.
+
